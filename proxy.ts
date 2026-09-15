@@ -142,24 +142,19 @@ export async function proxy(request: NextRequest) {
   // Log to console (structured JSON)
   console.log(JSON.stringify(auditLog));
 
-  // Optionally send to external logging endpoint
-  await sendAuditLog(auditLog);
+  // Send to Redis (via the /api/audit-log route — proxy.ts runs on the Edge
+  // runtime and can't use ioredis directly, see that route for why)
+  await sendAuditLog(auditLog, request.nextUrl.origin);
 
   return response;
 }
 
 /**
- * Sends audit log to external endpoint (Logstash)
+ * Publishes the audit log to Redis via the internal /api/audit-log route.
  */
-async function sendAuditLog(auditLog: AuditLog): Promise<void> {
-  const logEndpoint = process.env.NEXT_PUBLIC_LOG_ENDPOINT;
-
-  if (!logEndpoint) {
-    return;
-  }
-
+async function sendAuditLog(auditLog: AuditLog, origin: string): Promise<void> {
   try {
-    const response = await fetch(logEndpoint, {
+    const response = await fetch(`${origin}/api/audit-log`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
