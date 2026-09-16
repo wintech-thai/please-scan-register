@@ -12,7 +12,12 @@ import Redis, { Redis as RedisClient, RedisOptions } from 'ioredis';
 let redisClient: RedisClient | null = null;
 
 function getRedisClient(): RedisClient | null {
-  if (redisClient && redisClient.status === 'ready') {
+  // Return the existing client even while it's still connecting - creating a
+  // second client here on every call until the first one reaches "ready"
+  // just stacks up redundant connection attempts. With enableOfflineQueue
+  // true (see below), commands issued on a not-yet-ready client are queued
+  // and flushed automatically once the connection completes.
+  if (redisClient) {
     return redisClient;
   }
 
@@ -32,7 +37,11 @@ function getRedisClient(): RedisClient | null {
       port: parseInt(redisPort, 10),
       retryStrategy: (times: number) => Math.min(times * 50, 2000),
       maxRetriesPerRequest: 3,
-      enableOfflineQueue: false,
+      // Queue commands issued before the connection is ready instead of
+      // throwing "Stream isn't writeable" - the first request right after a
+      // pod restart can otherwise silently drop its audit log publish.
+      // Found and fixed for please-scan-verify's identical bug, see x075.
+      enableOfflineQueue: true,
       lazyConnect: false,
     };
 
